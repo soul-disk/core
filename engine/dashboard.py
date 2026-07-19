@@ -391,7 +391,13 @@ tr:hover td{background:var(--hover)}
 .col-source{width:70px}
 .col-subject{width:70px}
 .col-confidence{width:60px}
+.col-room{width:65px}
+.col-summary{width:130px}
+.col-tags{width:90px}
+.col-week{width:65px}
 .col-statement{white-space:normal;word-break:break-word;line-height:1.3;overflow:hidden;max-height:3.6em}
+tr.expanded .col-statement{max-height:none;white-space:pre-wrap}
+tr{cursor:pointer;transition:background .12s}
 .wing-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500;font-family:monospace}
 .wing-badge.cross{background:var(--cross-bg);color:var(--cross)}
 .wing-badge.agent{background:var(--agent1-bg);color:var(--agent1)}
@@ -716,7 +722,7 @@ async function loadData(){
   renderIdentity();renderAgentSwitch();
   document.getElementById("navTime").textContent=ALL_DATA.gen_time;
   renderWingStats();renderQuickStats();renderNav();
-  refreshCountdown=15;let sy=window.scrollY;applyFilters();window.scrollTo(0,sy);
+  refreshCountdown=Math.ceil(refreshMs/1000);let sy=window.scrollY;applyFilters();window.scrollTo(0,sy);
   }catch(e){document.getElementById("subtitle").innerHTML='<span style="color:var(--red)">⚠ 连接失败 · 自动重试中</span>'}
 }
 function updateSubtitle(){
@@ -817,7 +823,7 @@ function prepareData(){
 function getColumns(){
   let hasVault=filteredData.some(r=>r._source==="vault_active"||r._source==="vault_archive");
   let hasHall=filteredData.some(r=>r._source==="FACT"||r._source==="PREF"||r._source==="BOUND"||r._source==="COMMIT");
-  if(hasVault&&!hasHall)return[{k:"id",l:"ID",s:true,c:"col-id"},{k:"wing",l:"Wing",s:true,c:"col-wing"},{k:"room",l:"Room",s:true},{k:"content",l:"内容",s:false,c:"col-statement"},{k:"summary",l:"摘要",s:false},{k:"tags",l:"标签",s:false},{k:"created_week",l:"周",s:true},{k:"created_at",l:"时间",s:true,c:"col-date"}];
+  if(hasVault&&!hasHall)return[{k:"id",l:"ID",s:true,c:"col-id"},{k:"wing",l:"Wing",s:true,c:"col-wing"},{k:"room",l:"Room",s:true,c:"col-room"},{k:"content",l:"内容",s:false,c:"col-statement"},{k:"summary",l:"摘要",s:false,c:"col-summary"},{k:"tags",l:"标签",s:false,c:"col-tags"},{k:"created_week",l:"周",s:true,c:"col-week"},{k:"created_at",l:"时间",s:true,c:"col-date"}];
   return[{k:"id",l:"ID",s:true,c:"col-id"},{k:"type",l:"类型",s:true,c:"col-type"},{k:"subject",l:"主体",s:true,c:"col-subject"},{k:"statement",l:"内容",s:false,c:"col-statement"},{k:"source",l:"出处",s:false},{k:"confidence",l:"置信度",s:true,c:"col-confidence"},{k:"created",l:"时间",s:true,c:"col-date"}];
 }
 function onSearch(){currentPage=1;applyFilters()}
@@ -835,9 +841,11 @@ function renderTable(){
   let hasVault=filteredData.some(r=>r._source==="vault_active"||r._source==="vault_archive"),hasHall=filteredData.some(r=>r._source==="FACT"||r._source==="PREF"||r._source==="BOUND"||r._source==="COMMIT"),isVault=hasVault&&!hasHall;
   document.getElementById("tableBody").innerHTML=pageData.map(r=>{
     if(isVault){let w=r.wing,wc=wingClass(w);
-      return'<tr><td class="col-id">'+esc(r.id)+'</td><td class="col-wing"><span class="wing-badge '+wc+'"><span class="bdot"></span>'+esc(w)+'</span></td><td><span class="tag tag-room">'+esc(r.room)+'</span></td><td class="col-statement">'+esc(trunc(r.content,60))+'</td><td style="color:var(--muted)">'+esc(trunc(r.summary,60))+'</td><td>'+(parseTags(r.tags)||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("")+'</td><td class="col-date">'+esc(r.created_week)+'</td><td class="col-date">'+esc(r.created_at)+'</td></tr>';}
-    let type=r._source||r.type||'FACT',tc=type==="FACT"?"tag-fact":type==="PREF"?"tag-pref":type==="BOUND"?"tag-bound":type==="COMMIT"?"tag-commit":"tag-room";
-    let lock=r.immutable?' <span class="immutable-icon" title="不可变记录">🔒</span>':'';return'<tr><td class="col-id">'+esc(r.id)+'</td><td class="col-type"><span class="tag '+tc+'">'+esc(r.type||type)+'</span></td><td class="col-subject">'+esc(r.subject||r.wing||'')+lock+'</td><td class="col-statement">'+esc(trunc(r.statement||r.content||'',80))+'</td><td style="color:var(--muted);font-size:11px;line-height:1.35;word-break:break-word">'+esc(trunc(r.source||'',70))+'</td><td class="col-confidence">'+((r.confidence!=null?r.confidence:0)*100).toFixed(0)+'%</td><td class="col-date">'+esc(r.created||r.established_at||r.created_at||'')+'</td></tr>';
+      let fullContent=attr(r.content||""),fullSummary=attr(r.summary||"");
+      let tags=parseTags(r.tags)||[],tagText=attr(tags.join(", "));return'<tr onclick="toggleExpandRow(this)"><td class="col-id" title="'+attr(r.id)+'">'+esc(r.id)+'</td><td class="col-wing" title="'+attr(w)+'"><span class="wing-badge '+wc+'"><span class="bdot"></span>'+esc(w)+'</span></td><td class="col-room" title="'+attr(r.room)+'"><span class="tag tag-room">'+esc(r.room)+'</span></td><td class="col-statement col-content" data-full="'+fullContent+'" title="'+fullContent+'">'+esc(trunc(r.content,60))+'</td><td class="col-statement col-summary" data-full="'+fullSummary+'" title="'+fullSummary+'" style="color:var(--muted)">'+esc(trunc(r.summary,60))+'</td><td class="col-tags" title="'+tagText+'">'+(parseTags(r.tags)||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("")+'</td><td class="col-week" title="'+attr(r.created_week)+'">'+esc(r.created_week)+'</td><td class="col-date" title="'+attr(r.created_at)+'">'+esc(r.created_at)+'</td></tr>';}
+    let type=r._source||r.type||"FACT",tc=type==="FACT"?"tag-fact":type==="PREF"?"tag-pref":type==="BOUND"?"tag-bound":type==="COMMIT"?"tag-commit":"tag-room";
+    let fullStatement=attr(r.statement||r.content||""),fullSource=attr(r.source||"");
+    let subjectText=attr(r.subject||r.wing||""), subjectHtml=esc(r.subject||r.wing||"");let lock=r.immutable?' <span class="immutable-icon" title="不可变记录">🔒</span>':'';return'<tr onclick="toggleExpandRow(this)"><td class="col-id" title="'+attr(r.id)+'">'+esc(r.id)+'</td><td class="col-type" title="'+attr(r.type||type)+'"><span class="tag '+tc+'">'+esc(r.type||type)+'</span></td><td class="col-subject" data-full="'+subjectText+'" title="'+subjectText+'">'+subjectHtml+lock+'</td><td class="col-statement" data-full="'+fullStatement+'" title="'+fullStatement+'">'+esc(trunc(r.statement||r.content||"",80))+'</td><td class="col-statement" data-full="'+fullSource+'" title="'+fullSource+'" style="color:var(--muted);font-size:11px;line-height:1.35;word-break:break-word">'+esc(trunc(r.source||"",70))+'</td><td class="col-confidence" title="'+attr(((r.confidence!=null?r.confidence:0)*100).toFixed(0)+"%")+'">'+((r.confidence!=null?r.confidence:0)*100).toFixed(0)+'%</td><td class="col-date" title="'+attr(r.created||r.established_at||r.created_at||'')+'">'+esc(r.created||r.established_at||r.created_at||'')+'</td></tr>';
   }).join("");
   document.getElementById("toolbarInfo").textContent="共 "+filteredData.length+" 条 / "+(start+1)+"-"+end+" / 第 "+currentPage+" 页";
   let ph="";ph+='<button onclick="goPage(1)"'+(currentPage===1?" disabled":"")+'>⏮</button>';ph+='<button onclick="goPage('+(currentPage-1)+')"'+(currentPage===1?" disabled":"")+'>◀</button>';ph+='<span class="page-info"><input type="number" value="'+currentPage+'" min="1" max="'+tp+'" onchange="goPage(parseInt(this.value)||1)"> / '+tp+'</span>';ph+='<button onclick="goPage('+(currentPage+1)+')"'+(currentPage===tp?" disabled":"")+'>▶</button>';ph+='<button onclick="goPage('+tp+')"'+(currentPage===tp?" disabled":"")+'>⏭</button>';
@@ -845,7 +853,28 @@ function renderTable(){
 }
 function goPage(n){let ps=parseInt(document.getElementById("pageSize").value),tp=Math.max(1,Math.ceil(filteredData.length/ps));currentPage=Math.max(1,Math.min(n,tp));renderTable()}
 function esc(s){if(s==null)return"";let d=document.createElement("div");d.textContent=String(s);return d.innerHTML}
+function attr(s){if(s==null)return"";return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function trunc(s,n){if(!s)return"";return s.length>n?s.substring(0,n)+"…":s}
+function toggleExpandRow(tr){
+  let was=tr.classList.contains("expanded");
+  if(!was){
+    // 展开：用 data-full 替换截断内容
+    let cells=tr.querySelectorAll("[data-full]");
+    cells.forEach(td=>{
+      if(!td._saved)td._saved=td.innerHTML;
+      td.innerHTML=td.dataset.full;
+      td.style.maxHeight="none";td.style.whiteSpace="pre-wrap";
+    });
+  }else{
+    // 收起：恢复截断内容
+    let cells=tr.querySelectorAll("[data-full]");
+    cells.forEach(td=>{
+      if(td._saved)td.innerHTML=td._saved;
+      td.style.maxHeight="3.6em";td.style.whiteSpace="normal";
+    });
+  }
+  tr.classList.toggle("expanded");
+}
 function parseTags(t){try{return JSON.parse(t)}catch(e){return[]}}
 function renderIdentity(){let c=ALL_DATA.config||{};document.getElementById("sidebarAgent").textContent=(c.agent_name||"未命名")+" · "+(c.agent_id||"无ID");document.getElementById("sidebarDetail").innerHTML=(c.user_name?'<div>👤 用户：'+esc(c.user_name)+'</div>':'')+(c.relationship?'<div>💞 关系：'+esc(c.relationship)+'</div>':'')+(c.tone?'<div>🎯 语气：'+esc(c.tone)+'</div>':'');}
 function renderAgentSwitch(){let box=document.getElementById("agentSwitch");if(!box)return;let list=ALL_DATA.agents_list||[];let cur=new URLSearchParams(location.search).get("agent")||"";let html='<select onchange="switchAgent(this.value)"><option value="">· 全部 ·</option>';list.forEach(a=>{html+='<option value="'+esc(a)+'"'+(a===cur?' selected':'')+'>'+esc(a)+'</option>'});html+='</select>';box.innerHTML=html}
@@ -919,7 +948,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _html(self, agent=None):
         data = json.dumps(gather_all_data(agent), ensure_ascii=False, default=str)
-        html = HTML_PAGE.replace("let ALL_DATA=null;", "let ALL_DATA=" + data + ";")
+        html = HTML_PAGE.replace("let ALL_DATA=null,", "let ALL_DATA=" + data + ",")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -1064,7 +1093,7 @@ def main():
         op = args.output or os.path.join(ROOT, "data", "dashboard.html")
         os.makedirs(os.path.dirname(op), exist_ok=True)
         data = json.dumps(gather_all_data(args.agent), ensure_ascii=False, default=str)
-        html = HTML_PAGE.replace("let ALL_DATA=null;", "let ALL_DATA=" + data + ";")
+        html = HTML_PAGE.replace("let ALL_DATA=null,", "let ALL_DATA=" + data + ",")
         html = html.replace("async function loadData(){", "async function loadData(){return;")
         live_link = "http://127.0.0.1:8877/" + (("?agent=" + args.agent) if args.agent else "")
         html = html.replace("loadData();",
