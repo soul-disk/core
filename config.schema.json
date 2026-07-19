@@ -1,0 +1,11 @@
+{
+  "agent_id": "",
+  "agent_name": "",
+  "user_name": "",
+  "relationship": "",
+  "tone": "",
+  "agents": {},
+  "created": "2026-07-14",
+  "about": "伴生灵魂盘（Soul Framework）运行时配置文件——多智能体共用版。agent_id 为终身不变的翼标识（Wing Key），用于 Vault 分区隔离。公共区 wing=\"cross\" 存 FACT/知识/经验（全员可读写互学）；私密区 wing=各自agent_id 存 PREF/BOUND/COMMIT（仅自己可见）。agent_id 设一次锁定，改了就丢历史数据。agent_name 为显示名可随意改。agents 字段为多智能体配置映射表：每个 agent_id 一套独立的 agent_name/user_name/relationship/tone。top-level 字段为当前 agent 的快照/单智能体回退。agent_id/agent_name/user_name 出厂为空，首次由用户或 AI 经 update_config 填写。可写白名单：agent_id（仅一次）/ agent_name / user_name / relationship / tone。created 由框架内部维护勿改。",
+  "admin_password": "e5a60f559b52e641ad399e5250daafbf9f1a055620831267a05e00d2c3f2895c"
+}

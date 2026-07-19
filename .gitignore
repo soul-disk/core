@@ -1,0 +1,21 @@
+# 字节码 / 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行时数据（用户本地记忆，不入库；出厂空文件保留）
+data/facts/cold/
+data/context_latest.txt
+
+# 备份
+*.bak
+*.before_*
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+
+# 非灵魂盘文件 / 含个人示例数据的脚本（勿推；本地可保留）
+_notify.py
+_send_msg.py
+selftest.py
