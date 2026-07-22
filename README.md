@@ -175,3 +175,16 @@ Recorder().add("PREF", "用户", "用户偏好纯文本")            # → vault
     - `engine/dashboard.py` — `_ensure_admin_password()` 改为状态机：初始密码持久化到 `config.schema.json`（`_initial_password_plain`），未改密码前登录口常显、改密码后隐藏；移除无需登录的网页重置入口（防任意重置进入）；登录成功不再清除初始密码。
     - `config.schema.json` — 移除调试残留的 `admin_password` / `_initial_password_plain` / `admin_password_changed` 三字段，恢复为干净发布模板（首启自填）。
   - **效果**：不改密码 → 初始密码常显（重启也显）；改密码 → 不再显示且无任何重置入口；忘记则手动删 `admin_password` 字段重启重生。
+
+- **2026-07-22 · 新增"忘记管理员密码"用户文档**
+  - **背景**：仪表盘改密码后忘记密码，此前无正式恢复指引。
+  - **修改文件**：
+    - `USER-GUIDE.md` — 新增《仪表盘登录 & 忘记管理员密码怎么办》章节：初始密码显示规则、三步找回（删 `admin_password` / `_initial_password_plain` / `admin_password_changed` 三字段 → 重启 → 重新生成初始密码）、JSON 尾逗号注意事项、以及"为何不做网页一键重置"的安全说明；常见问题区补一条速查 Q&A。
+  - **效果**：用户忘记仪表盘密码时可自助恢复，且明确删字段不影响 `data/` 记忆数据。
+
+- **2026-07-22 · 忘记密码重置加固：尾逗号自动修复 + `--reset-admin` 命令**
+  - **问题**：原 `dashboard.py` 的 `_load_config()` / `read_config()` 对 `config.schema.json` 是裸 `json.load`；用户手删密码字段时极易在上一行留下尾逗号 → JSON 非法 → 仪表盘启动直接崩溃，被误认为"软件坏了"。且"手动删三行 JSON"对普通用户不友好。
+  - **修改文件**：
+    - `engine/dashboard.py` — ① `_load_config()` 增加容错：解析失败时自动去除尾逗号并写回修复后的合法 JSON，实在修不好才备份为 `.corrupt.bak` 并以空配置继续（不再崩）；② `read_config()` 复用该容错逻辑；③ 新增 `--reset-admin` 命令行参数：一条命令清空并重新生成初始密码，用户完全不用手改 JSON。
+    - `USER-GUIDE.md` — 《忘记密码》改写为"命令重置（推荐）为主、手删字段（兜底）为辅"，明确只需删 2 个密码字段（`admin_password` + `_initial_password_plain`，`admin_password_changed` 删不删都行），并提示尾逗号坑已由新版自动修复。
+  - **效果**：忘记密码 → `python engine/dashboard.py --reset-admin` 一键重置；即便手改留了尾逗号，启动也会自动修好、不再崩溃；记忆数据（`data/`）始终不受影响。
