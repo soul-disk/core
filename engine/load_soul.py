@@ -260,6 +260,11 @@ class Soul:
         score *= (0.5 + recency)
         if rec.get("updated") and rec.get("created") and rec["updated"] != rec["created"]:
             score += 0.5
+        # 权重乘子：>1 提权、<1 降权，默认 1.0
+        try:
+            score *= float(rec.get("weight", 1.0))
+        except (TypeError, ValueError):
+            pass
         return score
 
     # ---------- 走廊预载（Vault active 层） ----------
@@ -394,7 +399,11 @@ class Soul:
             for r in all_recs:
                 if r.get("_type") != t:
                     continue
-                s = f"- {r.get('statement')}"
+                stmt = r.get("statement", "")
+                # 超长单条截断 + 引用，避免一条撑爆预算（TokenJuice 式压缩的轻量版）
+                if len(stmt) > 200:
+                    stmt = stmt[:197] + f"...(详见事实库:{r.get('id', '')})"
+                s = f"- {stmt}"
                 if self._used(lines) + len(s) + 1 > budget_chars:
                     truncated = True
                     break

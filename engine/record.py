@@ -115,17 +115,28 @@ class Recorder:
         nums = [int(r.split("_")[-1]) for r in existing if r.split("_")[-1].isdigit()]
         return f"{prefix}_{nums[-1] + 1:04d}" if nums else f"{prefix}_0001"
 
-    def add(self, ftype, subject, statement, confidence=1.0, immutable=False, source="对话"):
-        """新增或更新一条记忆。返回记录 dict。"""
+    def add(self, ftype, subject, statement, confidence=1.0, immutable=False, source="对话", weight=1.0):
+        """新增或更新一条记忆。返回记录 dict。
+
+        weight：重要性权重（默认 1.0，>1 提权、<1 降权），融入 recall 排序。
+        """
         if ftype not in TYPE_FILE:
             raise ValueError(f"未知类型 {ftype}，应为 {list(TYPE_FILE)}")
         today = datetime.date.today().isoformat()
+        try:
+            weight = float(weight)
+        except (TypeError, ValueError):
+            weight = 1.0
 
         # 去重：同 agent 下 同主体同陈述才更新（避免跨 agent 误去重）
         for r in self._all():
             if r.get("agent_id", "") == self.wing_id and r.get("subject") == subject and r.get("statement") == statement:
                 r["updated"] = today
                 r["confidence"] = max(r.get("confidence", 0), confidence)
+                try:
+                    r["weight"] = max(float(r.get("weight", 1.0)), float(weight))
+                except (TypeError, ValueError):
+                    r["weight"] = r.get("weight", 1.0)
                 self._rewrite_all()
                 self._to_vault(r)  # 去重更新也同步 vault（容忍重复写入）
                 return r
@@ -140,6 +151,7 @@ class Recorder:
             "source": source,
             "confidence": confidence,
             "immutable": immutable,
+            "weight": weight,
             "created": today,
             "updated": today,
         }
@@ -149,6 +161,16 @@ class Recorder:
 
         # Vault 分流：同步写入走廊层（active），供 recall_context 预载
         self._to_vault(rec)
+
+        # 审计：记录写操作（best-effort，失败不阻断）
+        try:
+            try:
+                from engine.audit import log as _audit
+            except ImportError:
+                from .audit import log as _audit
+            _audit(self.wing_id, "record_fact", rec.get("id", ""), f"{ftype}:{subject}", root=self.root)
+        except Exception:
+            pass
 
         return rec
 

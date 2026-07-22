@@ -188,3 +188,14 @@ Recorder().add("PREF", "用户", "用户偏好纯文本")            # → vault
     - `engine/dashboard.py` — ① `_load_config()` 增加容错：解析失败时自动去除尾逗号并写回修复后的合法 JSON，实在修不好才备份为 `.corrupt.bak` 并以空配置继续（不再崩）；② `read_config()` 复用该容错逻辑；③ 新增 `--reset-admin` 命令行参数：一条命令清空并重新生成初始密码，用户完全不用手改 JSON。
     - `USER-GUIDE.md` — 《忘记密码》改写为"命令重置（推荐）为主、手删字段（兜底）为辅"，明确只需删 2 个密码字段（`admin_password` + `_initial_password_plain`，`admin_password_changed` 删不删都行），并提示尾逗号坑已由新版自动修复。
   - **效果**：忘记密码 → `python engine/dashboard.py --reset-admin` 一键重置；即便手改留了尾逗号，启动也会自动修好、不再崩溃；记忆数据（`data/`）始终不受影响。
+
+- **2026-07-22 · 记忆引擎 4 项自研增强**
+  - **背景**：本次对灵魂盘记忆引擎进行 4 项独立增强：fact 重要性权重、Obsidian 兼容导出、recall 超长截断与压缩、写操作审计。属灵魂盘核心能力的自研演进，不依赖外部项目。
+  - **修改文件**：
+    - `engine/record.py` — `add()` 新增 `weight` 参数（重要性权重，默认 1.0，>1 提权 / <1 降权），写入 fact 字典并融入 recall 排序；写操作插审计。
+    - `engine/load_soul.py` — `_importance()` 融入 `weight` 乘子（recall_context 自动按权重排序）；`context_pack` 超长 statement 截断为前 197 字 + 事实库引用（轻量压缩，防一条撑爆预算）。
+    - `engine/audit.py`（**新增**）— 独立 `data/audit.db` 审计日志，记录 `record_fact` / `vault_store` / `update_config` 写操作（agent_id / action / target / detail / 时间），best-effort 不阻断主流程。
+    - `engine/exporter.py`（**新增**）— 把 facts + vault 导出为 Obsidian 兼容的 `.md` 树（按 wing/类型分目录，只读不碰存储），可在 Obsidian 直接浏览/编辑记忆。
+    - `mcp_server.py` — `record_fact` 新增 `weight` 参数；新增 `export_vault` / `get_audit` 两个 MCP 工具（已注册并接入分发）；`vault_store` / `update_config` 成功后写审计。
+  - **效果**：① fact 可加权重提降优先级，recall 自动按权重排序；② 可在 Obsidian 直接翻看/编辑晓安记忆；③ recall 超长自动截断+引用，token 更省；④ 写操作留痕可追溯，增强安全研判。
+  - **验证**：`py_compile` 全过；临时目录功能测试（weight 排序 / 导出 / 审计）全部通过；官方 `selftest.py` 通过，未破坏冷层穿透 / summary 层 / context_pack 截断既有链路。改完经 `sync_to_instance.py` 同步到实例，未动 `data/` 与实例 `config.schema.json`。

@@ -166,7 +166,7 @@ def tool_get_fact(agent_id=None, subject=None, fact_id=None):
 
 
 def tool_record_fact(ftype, subject, statement, agent_id=None,
-                     write_key=None, confidence=1.0, immutable=False):
+                     write_key=None, confidence=1.0, immutable=False, weight=None):
     """写入/更新一条记忆。返回 JSON 字符串（记录 dict）。"""
     caller = _resolve_agent_id(agent_id)
     gate = _require_registered(caller)
@@ -177,9 +177,13 @@ def tool_record_fact(ftype, subject, statement, agent_id=None,
             f"write_key 验证失败：agent_id='{caller}' 已注册，"
             f"但提供的 key 不匹配。拒绝写入。"
         )
+    try:
+        w = float(weight) if weight is not None else 1.0
+    except (TypeError, ValueError):
+        w = 1.0
     rec = Recorder(agent_name=caller).add(
         ftype, subject, statement,
-        confidence=float(confidence), immutable=bool(immutable),
+        confidence=float(confidence), immutable=bool(immutable), weight=w,
     )
     return json.dumps(rec, ensure_ascii=False, indent=2)
 
@@ -213,6 +217,15 @@ def tool_vault_store(content, wing="default", room="general", tags=None,
             f"但提供的 key 不匹配。拒绝写入私密区。"
         )
     rec = Vault().store(content, wing=wing, room=room, tags=tags, level=level, summary=summary)
+    # 审计：记录 vault 写操作（best-effort）
+    try:
+        try:
+            from engine.audit import log as _audit
+        except ImportError:
+            from .audit import log as _audit
+        _audit(caller, "vault_store", rec.get("id", ""), f"{wing}:{room}")
+    except Exception:
+        pass
     return json.dumps(rec, ensure_ascii=False, indent=2)
 
 
@@ -245,6 +258,37 @@ def tool_vault_compact(force=False):
     """滚动归档：走廊(active)满阈值或跨周 → 沉淀进房间(archive) + 刷新 weekly rollup。"""
     stats = Vault().compact(force=bool(force))
     return json.dumps(stats, ensure_ascii=False, indent=2)
+
+
+def tool_export_vault(target_dir=None, agent_id=None):
+    """把当前实例记忆（facts + vault）导出为 Obsidian 兼容 Markdown 树。只读，不碰存储。"""
+    try:
+        try:
+            from engine.exporter import export_vault_md
+        except ImportError:
+            from .exporter import export_vault_md
+        files = export_vault_md(target_dir=target_dir)
+        return json.dumps({"exported": len(files), "files": files}, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
+
+
+def tool_get_audit(limit=50, agent_id=None):
+    """读取调用方自己的操作审计（record_fact / vault_store / update_config 留痕）。只能查自己。"""
+    caller = _resolve_agent_id(agent_id)
+    if not caller:
+        return "（需声明 agent_id 才能查审计）"
+    try:
+        try:
+            from engine.audit import query as _audit_query
+        except ImportError:
+            from .audit import query as _audit_query
+        rows = _audit_query(agent_id=caller, limit=int(limit))
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
+    if not rows:
+        return "（无审计记录）"
+    return json.dumps(rows, ensure_ascii=False, indent=2)
 
 
 # AI 可经接口修改的配置白名单（路径类 / 内部字段不在此列）
@@ -362,6 +406,15 @@ def tool_update_config(key, value, agent_id=None, write_key=None):
             "丢失后无法通过本接口恢复，需管理员手动编辑 config.schema.json 重置。"
             "后续每次调用 update_config / record_fact / vault_store（私密区）都需要此 key。"
         )
+    # 审计：记录配置修改（best-effort）
+    try:
+        try:
+            from engine.audit import log as _audit
+        except ImportError:
+            from .audit import log as _audit
+        _audit(final_aid, "update_config", key, value[:200] if isinstance(value, str) else str(value))
+    except Exception:
+        pass
     return json.dumps(safe, ensure_ascii=False, indent=2)
 
 
@@ -501,6 +554,28 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "export_vault",
+        "description": "把当前实例的记忆（facts + vault）导出为 Obsidian 兼容的 Markdown 树，存到本地目录（默认 <实例>/data/vault-md/），便于在 Obsidian 中直接浏览/搜索/编辑。只读，不修改任何存储。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target_dir": {"type": "string", "description": "可选。导出目录，默认 <实例>/data/vault-md/"},
+                "agent_id": {"type": "string", "description": "可选。声明调用方身份。"},
+            },
+        },
+    },
+    {
+        "name": "get_audit",
+        "description": "读取调用方自己的操作审计日志（record_fact / vault_store / update_config 等写操作留痕）。返回最近 limit 条，供可追溯性与安全研判。只能查自己，不可查他人。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "number", "description": "返回条数上限，默认 50"},
+                "agent_id": {"type": "string", "description": "可选。声明调用方身份（仅查自己）。"},
+            },
+        },
+    },
 ]
 
 
@@ -587,6 +662,16 @@ def handle_message(msg):
                 text = tool_vault_status()
             elif name == "vault_compact":
                 text = tool_vault_compact(args.get("force", False))
+            elif name == "export_vault":
+                text = tool_export_vault(
+                    target_dir=args.get("target_dir"),
+                    agent_id=args.get("agent_id"),
+                )
+            elif name == "get_audit":
+                text = tool_get_audit(
+                    limit=args.get("limit", 50),
+                    agent_id=args.get("agent_id"),
+                )
             else:
                 raise ValueError(f"未知工具 {name}")
             result = {"content": [{"type": "text", "text": str(text)}], "isError": False}
