@@ -164,3 +164,14 @@ Recorder().add("PREF", "用户", "用户偏好纯文本")            # → vault
 
 *这是框架 v1。规则写清楚了，但机制靠运行期 AI 实打实去记、去分析、去积累。*
 *它不替用户训练，它替用户"记得"。*
+
+---
+
+## 更新记录
+
+- **2026-07-22 · 管理员登录初始密码显示修复 + 发布态清理**
+  - **问题**：`dashboard.py` 仅以 `admin_password` 哈希存在与否判断是否展示初始密码；初始密码明文仅存内存，进程重启即丢失 → 首次启动后重启看不到初始密码、忘记密码锁死；且曾有"无需登录即可网页重置密码"的入口（后门风险）。
+  - **修改文件**：
+    - `engine/dashboard.py` — `_ensure_admin_password()` 改为状态机：初始密码持久化到 `config.schema.json`（`_initial_password_plain`），未改密码前登录口常显、改密码后隐藏；移除无需登录的网页重置入口（防任意重置进入）；登录成功不再清除初始密码。
+    - `config.schema.json` — 移除调试残留的 `admin_password` / `_initial_password_plain` / `admin_password_changed` 三字段，恢复为干净发布模板（首启自填）。
+  - **效果**：不改密码 → 初始密码常显（重启也显）；改密码 → 不再显示且无任何重置入口；忘记则手动删 `admin_password` 字段重启重生。
