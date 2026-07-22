@@ -69,15 +69,44 @@ def _hash_password(pw):
     return hashlib.sha256(pw.encode("utf-8")).hexdigest()
 
 def _ensure_admin_password():
-    """首次启动时生成随机管理员密码，打印到控制台 + 存内存供前端展示，存哈希到 config。"""
+    """首次启动时生成随机管理员密码，打印到控制台 + 持久化到 config 供前端展示（重启后仍可显示），存哈希到 config。
+
+    安全模型（本地单机工具，物理访问即信任）：
+      - 初始密码持续显示在登录口，直到用户主动修改密码；
+      - 一旦用户改过密码（admin_password_changed=true），初始密码明文即从 config 删除、不再展示；
+      - 无网页端"重置密码"入口（避免任何人未登录即可重置的漏洞）。改后忘记密码，
+        需手动删除 config.schema.json 的 admin_password 字段并重启，以重新生成初始密码。
+
+    config 中的状态字段：
+      - admin_password:          SHA256 哈希（存在 = 已初始化）
+      - admin_password_changed:  bool（true = 用户主动改过密码 → 不再展示初始密码）
+      - _initial_password_plain: 明文（仅当未改密码时存于 config，改密码后删除）
+    """
     global _initial_password_plain
-    existing = _get_admin_password_hash()
-    if existing:
-        return None  # 已有密码
-    pw = uuid.uuid4().hex[:12]
-    _initial_password_plain = pw  # 存内存，前端登录弹窗显示
-    _set_admin_password_hash(_hash_password(pw))
-    return pw
+    cfg = _load_config()
+    existing = (cfg.get("admin_password") or "").strip()
+    changed = cfg.get("admin_password_changed") == True
+
+    if not existing:
+        # ── 首次启动：无密码 → 生成并持久化 ──
+        pw = uuid.uuid4().hex[:12]
+        _initial_password_plain = pw
+        _set_admin_password_hash(_hash_password(pw))
+        cfg = _load_config()  # 重新读，避免覆盖 _set 的写入
+        cfg["_initial_password_plain"] = pw
+        cfg["admin_password_changed"] = False
+        _save_config(cfg)
+        return pw
+
+    if not changed:
+        # ── 有密码但用户尚未主动修改 → 从 config 恢复初始密码明文，持续展示 ──
+        plain = (cfg.get("_initial_password_plain") or "").strip()
+        if plain:
+            _initial_password_plain = plain
+            return plain  # 重启后仍能显示
+
+    # ── 用户已改过密码（或明文已丢失）→ 不再展示 ──
+    return None
 
 # ---------- 管理员操作 ----------
 
@@ -495,7 +524,7 @@ tr{cursor:pointer;transition:background .12s}
     <div id="pwDisplay" style="display:none;background:var(--bg3);border:1px solid var(--cross);border-radius:7px;padding:10px 12px;margin-top:4px">
       <div style="color:var(--cross);font-size:11px;margin-bottom:4px">🔑 初始密码（首次使用）</div>
       <div style="font-family:monospace;font-size:18px;font-weight:700;color:var(--text);letter-spacing:1px" id="pwText"></div>
-      <div style="color:var(--muted);font-size:10px;margin-top:4px">登录后不再显示</div>
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">修改密码后此提示消失，请尽快设置您自己的密码</div>
     </div>
     <p style="color:var(--muted);font-size:11px;margin-top:4px;line-height:1.4">
       登录后可管理 AI 身份和数据。
@@ -980,9 +1009,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         token = _gen_session()
         _sessions[token] = datetime.datetime.now().isoformat()
-        # 登录后清除内存中的初始密码
-        global _initial_password_plain
-        _initial_password_plain = None
+        # 注意：不在登录时清除初始密码——初始密码应持续展示直到用户"主动修改密码"
+        # （见 _admin_change_password）。仅"登录成功"不代表用户已设置自己的密码。
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Set-Cookie",
@@ -1064,6 +1092,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"success": False, "error": "旧密码错误"})
             return
         _set_admin_password_hash(_hash_password(new_pw))
+        # 用户已主动设置自己的密码 → 标记 changed + 清除持久化的初始密码明文，登录口不再展示
+        global _initial_password_plain
+        _initial_password_plain = None
+        cfg = _load_config()
+        cfg["admin_password_changed"] = True
+        cfg.pop("_initial_password_plain", None)
+        _save_config(cfg)
         self._json({"success": True, "message": "密码已修改"})
 
 
