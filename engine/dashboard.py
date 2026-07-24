@@ -172,7 +172,7 @@ def _delete_agent(agent_id):
             except Exception:
                 pass
 
-    # 3. 删 facts JSONL
+    # 3. 删 facts JSONL（精确匹配 agent_id 字段，字符串包含会误删）
     facts_dir = os.path.join(ROOT, "data", "facts")
     if os.path.isdir(facts_dir):
         for fn in ("facts.jsonl", "prefs.jsonl", "bounds.jsonl", "commits.jsonl"):
@@ -180,7 +180,18 @@ def _delete_agent(agent_id):
             if os.path.exists(fp):
                 with open(fp, "r", encoding="utf-8") as f:
                     lines = f.readlines()
-                kept = [l for l in lines if agent_id not in l]
+                kept = []
+                for l in lines:
+                    stripped = l.strip()
+                    if not stripped:
+                        kept.append(l)
+                        continue
+                    try:
+                        rec = json.loads(stripped)
+                        if rec.get("agent_id") != agent_id:
+                            kept.append(l)
+                    except json.JSONDecodeError:
+                        kept.append(l)
                 if len(kept) != len(lines):
                     with open(fp, "w", encoding="utf-8") as f:
                         f.writelines(kept)
@@ -769,15 +780,20 @@ function resetKey(aid){
 
 async function loadData(){
   let cur=new URLSearchParams(location.search).get("agent")||"";
-  document.getElementById("subtitle").innerHTML='<span class="live">● LIVE</span> 加载中...';
-  try{let r=await fetch("/api/data?"+Date.now()+(cur?"&agent="+encodeURIComponent(cur):""));ALL_DATA=await r.json();
-  refreshCountdown=Math.ceil(refreshMs/1000);
-  updateSubtitle();
-  renderIdentity();renderAgentSwitch();
-  document.getElementById("navTime").textContent=ALL_DATA.gen_time;
-  renderWingStats();renderQuickStats();renderNav();
-  refreshCountdown=Math.ceil(refreshMs/1000);let sy=window.scrollY;applyFilters();window.scrollTo(0,sy);
-  }catch(e){document.getElementById("subtitle").innerHTML='<span style="color:var(--red)">⚠ 连接失败 · 自动重试中</span>'}
+  try{
+    let r=await fetch("/api/data?"+Date.now()+(cur?"&agent="+encodeURIComponent(cur):""));
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    ALL_DATA=await r.json();
+    refreshCountdown=Math.ceil(refreshMs/1000);
+    updateSubtitle();
+    renderIdentity();renderAgentSwitch();
+    document.getElementById("navTime").textContent=ALL_DATA.gen_time;
+    renderWingStats();renderQuickStats();renderNav();
+    refreshCountdown=Math.ceil(refreshMs/1000);let sy=window.scrollY;applyFilters();window.scrollTo(0,sy);
+  }catch(e){
+    console.error('loadData error:', e);
+    document.getElementById("subtitle").innerHTML='<span style="color:var(--red)">⚠ 连接失败 · 自动重试中</span>';
+  }
 }
 function updateSubtitle(){
   let live='<span class="live">● LIVE</span>';
@@ -935,6 +951,18 @@ function renderAgentSwitch(){let box=document.getElementById("agentSwitch");if(!
 function switchAgent(v){location.href=v?('?agent='+encodeURIComponent(v)):('./');}
 (function restoreAR(){try{let ar=localStorage.getItem("soul_ar");let ri=localStorage.getItem("soul_ri");if(ri)document.getElementById("refreshInterval").value=ri;if(ar==="1"){document.getElementById("autoRefresh").checked=true;startAutoRefresh();}}catch(e){}})();
 checkAdmin();
+// 首屏立即基于服务端注入的 ALL_DATA 渲染，不依赖 fetch（若 fetch 失败首屏仍有内容）
+try {
+  if (ALL_DATA) {
+    refreshCountdown = Math.ceil(refreshMs / 1000);
+    renderIdentity(); renderAgentSwitch();
+    document.getElementById("navTime").textContent = ALL_DATA.gen_time;
+    renderWingStats(); renderQuickStats(); renderNav();
+    updateSubtitle();
+    prepareData(); renderTable();
+  }
+} catch(e) { console.error('initial render error:', e); }
+// 再异步获取最新数据（兼自动刷新）
 loadData();
 </script>
 </body>
