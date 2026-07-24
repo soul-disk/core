@@ -1214,7 +1214,7 @@ def main():
         print(f"实时版请访问 {live_link}")
         return
 
-    server = HTTPServer(("0.0.0.0", args.port), DashboardHandler)
+    server = HTTPServer(("127.0.0.1", args.port), DashboardHandler)
     url = f"http://127.0.0.1:{args.port}/"
     print(f"❤️ 灵魂盘仪表盘启动 → {url}")
     if not args.no_open:
